@@ -1,0 +1,28 @@
+{
+  "name": "rq-tracker",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^0.19.2",
+    "koa": "^2.7.0",
+    "koa-bodyparser": "^4.2.1",
+    "koa-router": "^7.4.0",
+    "koa-static": "^5.0.0",
+    "koa-views": "^6.2.0",
+    "mustache": "^3.0.1",
+    "puppeteer-core": "^1.19.0",
+    "puppeteer-extra": "^3.1.9",
+    "puppeteer-extra-plugin-flash": "^2.2.5",
+    "puppeteer-extra-plugin-user-data-dir": "^2.2.4",
+    "puppeteer-extra-plugin-user-preferences": "^2.2.4"
+  }
+}
