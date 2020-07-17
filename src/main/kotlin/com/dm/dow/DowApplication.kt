@@ -4,7 +4,6 @@ import com.dm.dow.DowApplication.Companion.log
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.runApplication
 import kotlinx.coroutines.*
-import kotlinx.coroutines.sync.Semaphore
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Configuration
@@ -18,7 +17,6 @@ import java.io.FileOutputStream
 import java.io.RandomAccessFile
 import java.io.StringReader
 import java.lang.Exception
-import java.lang.RuntimeException
 import java.net.URI
 import java.nio.file.Paths
 import javax.xml.parsers.DocumentBuilderFactory
@@ -110,6 +108,18 @@ class DowApplication(val webClient: WebClient) {
                 list
     }
 
+    fun parsePpt(xml:String) : List<PPTInfo> =
+            parseXml(xml,"/conf//document/page"){
+                val list = mutableListOf<PPTInfo>()
+                for (i in 0 until it.length) {
+                    val n = it.item(i)
+                    val attributes = n.attributes
+                    list.add(PPTInfo(attributes.getNamedItem("id").nodeValue.toInt(),
+                            attributes.getNamedItem("content").nodeValue))
+                }
+                list
+            }
+
     fun <T> parseXml(xml: String, xpath: String, mapper: (NodeList) -> T): T {
         val dBuilder = dbFactory.newDocumentBuilder()
         val xmlInput = InputSource(StringReader(xml))
@@ -162,20 +172,6 @@ suspend fun <T> retry(retryTimes: Int = 3, fn: suspend () -> T): T {
             throw e
         log.info("${e.message} fail ${retryTimes - 1} retries ")
         return retry(retryTimes - 1, fn)
-    }
-}
-
-
-data class DownList(var name: String = "", var data: Set<String> = emptySet())
-
-@ControllerAdvice
-class ExHandler {
-
-    @ExceptionHandler
-    @ResponseBody
-    fun handle(e: Exception): Any {
-        e.printStackTrace()
-        return mapOf("error" to e.message)
     }
 }
 
