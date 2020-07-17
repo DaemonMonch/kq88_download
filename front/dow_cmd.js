@@ -4,6 +4,8 @@ const axios = require("axios");
 const process = require("process");
 const { resolve } = require("path");
 
+const downloadServer = "http://xxxxxx";
+
 ppe.use(require("puppeteer-extra-plugin-flash")({
   pluginPath:'C:\\Users\\dm\\AppData\\Local\\Google\\Chrome\\User Data\\PepperFlash\\32.0.0.387\\pepflashplayer.dll'
 }));
@@ -59,8 +61,8 @@ let wait = async (time) => {
     name = name || "unknown";
     console.log(`type ${type} name ${name}`);
     await wait(3000);
-     let downUrl = type == 1 ? "down" : "flashdown" 
-     resp = await axios.post("http://42.51.11.94:3004/" + downUrl, {
+     let downUrl = type == 1 ? "/down" : "/flashdown" 
+     resp = await axios.post(downloadServer  + downUrl, {
       name: name,
       data: requestUrls,
     });
