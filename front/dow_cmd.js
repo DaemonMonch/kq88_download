@@ -4,8 +4,8 @@ const axios = require("axios");
 const process = require("process");
 const { resolve } = require("path");
 
-const downloadServer = "http://xxxxxx";
-
+const downloadServer = "http://42.51.11.94:3004";
+const xmlPattern = RegExp(".*?record[0-9]*\\.xml\\?t=.+")
 ppe.use(require("puppeteer-extra-plugin-flash")({
   pluginPath:'C:\\Users\\dm\\AppData\\Local\\Google\\Chrome\\User Data\\PepperFlash\\32.0.0.387\\pepflashplayer.dll'
 }));
@@ -42,7 +42,14 @@ let wait = async (time) => {
     page.on("request", async (r) => {
       
       const url = r.url();
-      if(url.endsWith('.xml') || url.endsWith('.grf') || url.endsWith('.ts') || url.endsWith('.m3u8') || url.indexOf('GenseeVod.swf') > -1){
+
+      if(url.endsWith('.xml')
+      		|| xmlPattern.test(url)
+      		|| url.endsWith('.grf')
+      		|| url.endsWith('.ts')
+      		|| url.endsWith('.m3u8')
+      		|| url.indexOf('GenseeVod.swf') > -1){
+       	console.log(url);
         if(url.indexOf('GenseeVod.swf') < 0)
           requestUrls.push(url)
         if(url.endsWith(".m3u8")){
@@ -51,11 +58,13 @@ let wait = async (time) => {
       }
         
     });
-    await page.goto(url, { timeout: 120000, waitUntil: ["domcontentloaded","networkidle0"] });
+
     //console.log(await page.content());
     let name ;
     try{
-      name = await page.$eval(".gs-live-in-fo",d => d.innerHTML)
+    await page.goto(url, { timeout: 120000, waitUntil: ["domcontentloaded","networkidle0"] });
+      //name = await page.$eval(".gs-live-in-fo",d => d.innerHTML)
+      name = await page.title();
     }catch(e){};
 
     name = name || "unknown";

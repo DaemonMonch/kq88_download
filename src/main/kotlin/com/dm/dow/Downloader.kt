@@ -1,14 +1,11 @@
 package com.dm.dow
 
 import kotlinx.coroutines.*
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.sync.Semaphore
 import org.slf4j.LoggerFactory
-import org.springframework.stereotype.Component
 import org.springframework.web.reactive.function.client.WebClient
 import org.springframework.web.reactive.function.client.awaitBody
 import java.io.File
-import java.lang.Exception
 
 
 class Downloader (val webClient: WebClient) {
@@ -19,20 +16,20 @@ class Downloader (val webClient: WebClient) {
 
     val semaphore = Semaphore(4)
 
-
-    suspend fun download(dir:File,urls:List<String>) : File = withContext(Disp.DOWN){
+    suspend fun download(dir:File,downloads: Iterable<Download>) : File = withContext(Disp.DOWN) {
         supervisorScope {
-            val tasks = urls.map {url ->
+            val tasks = downloads.map {down ->
                 val task = launch(CoroutineExceptionHandler{_,ex ->
                     log.error("",ex.message)
                     semaphore.release()
                 })  {
                     semaphore.acquire()
                     val resp = retry {
-                        log.info("downloading $url")
-                        webClient.get().uri(url).retrieve().awaitBody<ByteArray>()
+                        log.info("downloading ${down.url}")
+                        webClient.get().uri(down.url).retrieve().awaitBody<ByteArray>()
                     }
-                    val file = File(dir,url.substring(url.lastIndexOf("/") + 1))
+                    //val file =
+                    val file = down.downFile
                     if(file.exists())
                         file.delete()
                     file.createNewFile()
@@ -53,4 +50,8 @@ class Downloader (val webClient: WebClient) {
 
         return@withContext dir
     }
+
+
 }
+
+data class Download(val downFile: File, val url:String)

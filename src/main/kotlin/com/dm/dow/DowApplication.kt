@@ -19,6 +19,8 @@ import java.io.StringReader
 import java.lang.Exception
 import java.net.URI
 import java.nio.file.Paths
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 import javax.xml.parsers.DocumentBuilderFactory
 import javax.xml.xpath.XPathConstants
 import javax.xml.xpath.XPathFactory
@@ -44,12 +46,19 @@ class DowApplication(val webClient: WebClient) {
 
     @PostMapping("/down")
     suspend fun download(@RequestBody list: DownList): String {
-        val firstUrl = list.data.first()
-        val baseUrl = firstUrl.substring(0, firstUrl.lastIndexOf("/"))
+        val xmlUrl = list.data.find { it.contains(XML_PARTTERN) }
+                ?: throw IllegalArgumentException("do not have flash xml")
+        val m3u8Url = list.data.find { it.endsWith(".m3u8") }
+                ?: throw IllegalArgumentException("do not have flash xml")
+        val pptBaseUrl = xmlUrl.substring(0, xmlUrl.lastIndexOf("/"))
+        val m3u8BaseUrl = m3u8Url.substring(0, m3u8Url.lastIndexOf("/"))
         val m3u8 = Disp.DOWN.invoke {
-            webClient.get().uri("$baseUrl/record.m3u8").retrieve().awaitBody<String>()
+            webClient.get().uri("$m3u8BaseUrl/record.m3u8").retrieve().awaitBody<String>()
         }
-        val subPath = Paths.get(URI.create(firstUrl).path).parent.parent.fileName.toString()
+        val recordXML = Disp.DOWN.invoke {
+            webClient.get().uri(xmlUrl).retrieve().awaitBody<String>()
+        }
+        val subPath = Paths.get(URI.create(m3u8BaseUrl).path).parent.fileName.toString()
         val basePath = staticLocation.substring(staticLocation.indexOf(":") + 1)
         val dir = File(basePath, subPath)
         log.info(dir.toString())
@@ -59,15 +68,21 @@ class DowApplication(val webClient: WebClient) {
         dir.mkdir()
 
         val data = m3u8.lines()
-                .filter { !it.startsWith("#") }
-                .map { if (!it.startsWith("http")) "$baseUrl/$it" else it }
+                .filter { !it.startsWith("#") && it.isNotBlank()}
+                .map { if (!it.startsWith("http")) "$m3u8BaseUrl/$it" else it }
         val name = list.name
         log.info("start download $name")
-
-        downloader.download(dir, data)
-        val merged = mergeTS(name, dir, dir.parentFile)
-        return """http://dsp.eyangmedia.com/kq88/$subPath/${merged.name}"""
-
+        val ppts = parsePpt(recordXML)
+        val downloadVideos = data.map { Download(File(dir, it.substring(it.lastIndexOf("/") + 1)), it) }
+        val downloadPpts = ppts.map { Download(File(dir,it.newName),"$pptBaseUrl/${it.name}") }
+        downloader.download(dir, downloadVideos + downloadPpts)
+        mergeTS(name, dir)
+        val finalFile = File(basePath, name)
+        if(finalFile.exists())
+            finalFile.deleteRecursively()
+        dir.renameTo(finalFile)
+//        return """http://dsp.eyangmedia.com/kq88/$subPath/${merged.name}"""
+        return "ok"
 
     }
 
@@ -89,12 +104,20 @@ class DowApplication(val webClient: WebClient) {
 
         dir.mkdir()
 
-        val data = parseVideoName(recordXML)
+        val videoNames = parseVideoName(recordXML)
+        val ppts = parsePpt(recordXML)
         val name = list.name
         log.info("start download $name")
-        downloader.download(dir, data.map { "$baseUrl/$it" })
-        val merged = mergeFlash(name, dir, data)
-        return """http://dsp.eyangmedia.com/kq88/$subPath/${merged.name}"""
+        val downloadVideos = videoNames.map { Download(File(dir, it), "$baseUrl/$it") }
+        val downloadPpts = ppts.map { Download(File(dir,it.newName),"$baseUrl/${it.name}") }
+        downloader.download(dir, downloadVideos + downloadPpts)
+        val merged = mergeFlash(name, dir, videoNames)
+        val finalFile = File(basePath, name)
+        if(finalFile.exists())
+            finalFile.deleteRecursively()
+        dir.renameTo(finalFile)
+//        return """http://dsp.eyangmedia.com/kq88/$subPath/${merged.name}"""
+        return "ok"
 
     }
 
@@ -132,35 +155,70 @@ class DowApplication(val webClient: WebClient) {
     private suspend fun mergeTS(name: String, dir: File, dst: File = dir): File = withContext(Disp.MERGE) {
         log.info("merge $name")
         val partialNames = dir.list()
-        partialNames.sortBy { it.substring(it.indexOf("_") + 1, it.indexOf("-")).toInt() }
-        val merged = File(dir.parentFile, name + ".ts")
+        val tss = partialNames.filter { it.endsWith(".ts") }.sortedBy { it.substring(it.indexOf("_") + 1, it.indexOf("-")).toInt() }
+        val merged = File(dst, name + ".ts")
         val raf = FileOutputStream(merged, true)
         raf.use { out ->
-            partialNames.forEach {
+            tss.forEach {
 
                 val pf = File(dir, it)
                 val pfacf = RandomAccessFile(pf, "r")
                 pfacf.use { io ->
                     io.channel.transferTo(0, pfacf.length(), out.channel)
                 }
+                pf.delete()
             }
         }
+
+        zipFiles(File(dst,"ppt.zip"),dir.listFiles().filter { it.name.endsWith(".swf") })
 
         return@withContext merged
     }
 
-    //rename
-    suspend fun mergeFlash(name: String, dir: File, filenames: List<String>): File = withContext(Disp.MERGE) {
-        log.info("merge $name")
-        val merged = File(dir.parentFile, name)
-        filenames.forEachIndexed { i, filename ->
-            val pf = File(dir, filename)
-            pf.renameTo(File(dir, "${i}.flv"))
+    fun zipFiles(dst:File, files:List<File>, deleted:Boolean = true) {
+        dst.outputStream().use { os ->
+            val gzipOutputStream = ZipOutputStream(os)
+            gzipOutputStream.use { gos ->
+                files.forEach { ppt ->
+                    gos.putNextEntry(ZipEntry(ppt.name))
+                    ppt.inputStream().use { io -> io.copyTo(gos) }
+                    if(deleted)
+                        ppt.delete()
+                }
+
+            }
+
         }
-        if (merged.exists())
-            merged.deleteRecursively()
-        dir.renameTo(merged)
-        return@withContext merged
+    }
+
+    //rename
+    suspend fun mergeFlash(name: String, dir: File,filenames:List<String>,dst: File = dir): File = withContext(Disp.MERGE) {
+        log.info("merge $name")
+        val ppts = dir.listFiles().filter{it.name.endsWith(".swf") }
+        val pptsGizp = File(dst, "ppt.zip")
+        zipFiles(pptsGizp,ppts)
+
+        val videosZip = File(dst,"video.zip")
+        videosZip.outputStream().use { os ->
+            val gzipOutputStream = ZipOutputStream(os)
+            gzipOutputStream.use { gos ->
+
+                filenames.forEachIndexed { i, filename ->
+                    val pf = File(dir, filename)
+                    if(pf.exists()){
+                        gos.putNextEntry(ZipEntry("${i}.flv"))
+                        pf.inputStream().use {  it.copyTo(gos) }
+                        pf.delete()
+                    }
+
+//                    pf.renameTo(File(dir, "${i}.flv"))
+
+                }
+            }
+
+        }
+
+        return@withContext dir
     }
 }
 
